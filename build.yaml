@@ -1,0 +1,26 @@
+builders:
+  ludyx_collector_builder:
+    import: "package:flutter_ludyx_generator/builder.dart"
+    builder_factories: ["ludyxCollectorBuilder"]
+    build_extensions: { ".dart": [".ludyx_cache.json"] }
+    auto_apply: dependents
+    build_to: cache
+    runs_before:
+      - "flutter_ludyx_generator|ludyx_aggregator_builder"
+      - "flutter_ludyx_generator|ludyx_lua_builder"
+
+  ludyx_aggregator_builder:
+    import: "package:flutter_ludyx_generator/builder.dart"
+    builder_factories: ["ludyxAggregatorBuilder"]
+    build_extensions: { ".dart": [".ldx.dart"] }
+    required_inputs: [".ludyx_cache.json"]
+    auto_apply: dependents
+    build_to: source
+
+  ludyx_lua_builder:
+    import: "package:flutter_ludyx_generator/builder.dart"
+    builder_factories: ["ludyxLuaBuilder"]
+    build_extensions: { "$package$": ["assets/lua/components.lua"] }
+    required_inputs: [".ludyx_cache.json"]
+    auto_apply: dependents
+    build_to: source
