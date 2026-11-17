@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:build/build.dart';
+import 'package:flutter_ludyx_generator/src/utils.dart';
 import 'package:glob/glob.dart';
 
 class LudyxLuaBuilder implements Builder {
@@ -107,19 +108,16 @@ class LudyxLuaBuilder implements Builder {
     final raw = dartType.trim();
     if (raw.isEmpty) return 'any';
 
-    // 1. Handle top-level nullable suffix '?' (careful not to strip '?' inside Function(...))
-    if (_hasTopLevelNullableSuffix(raw)) {
+    if (LudyxGeneratorUtils.hasTopLevelNullableSuffix(raw)) {
       final nonNull = raw.substring(0, raw.length - 1).trim();
       final innerLua = dartTypeToLua(nonNull);
-      // Wrap function types in parentheses before adding '?' for valid LuaLS syntax
       if (nonNull.contains('Function(')) {
         return '($innerLua)?';
       }
       return '$innerLua?';
     }
 
-    // 2. Handle Function types: e.g. "void Function(String, int)" -> "fun(arg1: string, arg2: number): nil"
-    final fnMatch = _matchTopLevelFunction(raw);
+    final fnMatch = LudyxGeneratorUtils.matchTopLevelFunction(raw);
     if (fnMatch != null) {
       final returnTypeStr = fnMatch.returnType;
       final paramsStr = fnMatch.params;
@@ -130,21 +128,19 @@ class LudyxLuaBuilder implements Builder {
         return 'fun(): $luaReturn';
       }
 
-      final rawParams = _splitTopLevelArgs(paramsStr);
+      final rawParams = LudyxGeneratorUtils.splitTopLevelArgs(paramsStr);
       final luaParams = <String>[];
 
       for (var i = 0; i < rawParams.length; i++) {
         var param = rawParams[i].trim();
         if (param.isEmpty) continue;
 
-        // Strip optional positional brackets [...] or named braces {...}
         final isOptionalGroup =
             (param.startsWith('[') && param.endsWith(']')) ||
             (param.startsWith('{') && param.endsWith('}'));
         if (isOptionalGroup) {
           param = param.substring(1, param.length - 1).trim();
-          // If multiple parameters were inside [...] or {...}, split and process them
-          final innerGroupParams = _splitTopLevelArgs(param);
+          final innerGroupParams = LudyxGeneratorUtils.splitTopLevelArgs(param);
           for (var j = 0; j < innerGroupParams.length; j++) {
             luaParams.add(
               _formatLuaFnParam(
@@ -163,12 +159,11 @@ class LudyxLuaBuilder implements Builder {
       return 'fun(${luaParams.join(', ')}): $luaReturn';
     }
 
-    // 3. Handle Generics: List<T>, Set<T>, Iterable<T>, Map<K, V>, Future<T>
     final genericStart = raw.indexOf('<');
     if (genericStart != -1 && raw.endsWith('>')) {
       final base = raw.substring(0, genericStart).trim();
       final inner = raw.substring(genericStart + 1, raw.length - 1).trim();
-      final args = _splitTopLevelArgs(inner);
+      final args = LudyxGeneratorUtils.splitTopLevelArgs(inner);
 
       switch (base) {
         case 'List':
@@ -186,7 +181,6 @@ class LudyxLuaBuilder implements Builder {
       }
     }
 
-    // 4. Primitive & Core Dart Types
     return switch (raw) {
       'String' => 'string',
       'int' => 'integer',
@@ -213,7 +207,7 @@ class LudyxLuaBuilder implements Builder {
       p = p.substring('required '.length).trim();
     }
 
-    final split = _splitTypeAndName(p);
+    final split = LudyxGeneratorUtils.splitTypeAndName(p);
     final luaType = dartTypeToLua(split.type);
     final paramName = split.name ?? 'arg$index';
 
@@ -222,118 +216,5 @@ class LudyxLuaBuilder implements Builder {
     final optSuffix = shouldBeOptional ? '?' : '';
 
     return '$paramName$optSuffix: $luaType';
-  }
-
-  ({String type, String? name}) _splitTypeAndName(String param) {
-    var depthAngle = 0;
-    var depthParen = 0;
-    var lastSpaceIndex = -1;
-
-    for (var i = 0; i < param.length; i++) {
-      final ch = param[i];
-      if (ch == '<') depthAngle++;
-      if (ch == '>') depthAngle--;
-      if (ch == '(') depthParen++;
-      if (ch == ')') depthParen--;
-      if (ch == ' ' && depthAngle == 0 && depthParen == 0) {
-        lastSpaceIndex = i;
-      }
-    }
-
-    if (lastSpaceIndex == -1) {
-      return (type: param, name: null);
-    }
-
-    final left = param.substring(0, lastSpaceIndex).trim();
-    final right = param.substring(lastSpaceIndex + 1).trim();
-
-    if (right.startsWith('Function(') ||
-        right.endsWith('>') ||
-        right.endsWith(')')) {
-      return (type: param, name: null);
-    }
-
-    return (type: left, name: right);
-  }
-
-  bool _hasTopLevelNullableSuffix(String type) {
-    if (!type.endsWith('?')) return false;
-    var depthAngle = 0;
-    var depthParen = 0;
-    for (var i = 0; i < type.length - 1; i++) {
-      final ch = type[i];
-      if (ch == '<') depthAngle++;
-      if (ch == '>') depthAngle--;
-      if (ch == '(') depthParen++;
-      if (ch == ')') depthParen--;
-    }
-    return depthAngle == 0 && depthParen == 0;
-  }
-
-  ({String returnType, String params})? _matchTopLevelFunction(String type) {
-    var depthAngle = 0;
-    var depthParen = 0;
-
-    for (var i = 0; i < type.length; i++) {
-      final ch = type[i];
-      if (ch == '<') depthAngle++;
-      if (ch == '>') depthAngle--;
-      if (ch == '(') depthParen++;
-      if (ch == ')') depthParen--;
-
-      if (depthAngle == 0 &&
-          depthParen == 0 &&
-          type.startsWith('Function(', i)) {
-        final returnType = type.substring(0, i).trim();
-        final openParen = i + 'Function'.length;
-        if (type.endsWith(')')) {
-          final params = type.substring(openParen + 1, type.length - 1);
-          return (returnType: returnType, params: params);
-        }
-      }
-    }
-    return null;
-  }
-
-  List<String> _splitTopLevelArgs(String input) {
-    final result = <String>[];
-    var depthAngle = 0;
-    var depthParen = 0;
-    var depthBracket = 0;
-    var depthBrace = 0;
-    var start = 0;
-
-    for (var i = 0; i < input.length; i++) {
-      switch (input[i]) {
-        case '<':
-          depthAngle++;
-        case '>':
-          depthAngle--;
-        case '(':
-          depthParen++;
-        case ')':
-          depthParen--;
-        case '[':
-          depthBracket++;
-        case ']':
-          depthBracket--;
-        case '{':
-          depthBrace++;
-        case '}':
-          depthBrace--;
-        case ',':
-          if (depthAngle == 0 &&
-              depthParen == 0 &&
-              depthBracket == 0 &&
-              depthBrace == 0) {
-            result.add(input.substring(start, i).trim());
-            start = i + 1;
-          }
-      }
-    }
-
-    final tail = input.substring(start).trim();
-    if (tail.isNotEmpty) result.add(tail);
-    return result;
   }
 }

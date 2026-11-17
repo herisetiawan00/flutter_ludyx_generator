@@ -7,7 +7,7 @@ import 'package:source_gen/source_gen.dart';
 
 class LudyxCollectorBuilder implements Builder {
   static const TypeChecker _componentChecker = TypeChecker.fromUrl(
-    'package:flutter_ludyx_annotations/ludyx_component_annotations.dart#LudyxComponent',
+    'package:flutter_ludyx_annotations/flutter_ludyx_annotations.dart#LudyxComponent',
   );
 
   static const Map<String, String> _typeMap = {
